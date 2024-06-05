@@ -1,0 +1,57 @@
+// SPDX-License-Identifier: Apache-2.0
+:doctype: article
+
+== UL
+
+UL is a Universal Language, in the following senses:
+
+* Reads its own code and translates it to other languages
+* Run within an existing language (eg in Java as a ScriptEngine)
+* Run as a CLI tool (use go get or copy a github release binary)
+* Run as a shell language
+* Run in Makefile for recipe lines
+* Run in databases as a language for triggers, functions, procedures, new types/tables/indexes
+* Run as a custom validation in a flexible app
+* A UL script can just be a single line like ".Age < 100" to validate the Age field of the current object
+* Written in UL
+
+Key functional areas:
+
+* Simple imperative code
+* Easy to learn
+* APIs for database access and HTTP client/server
+* Code generation can be guided
+** database function calls translated into Go database/sql, Java JDBC, etc
+** HTTP serving translated into Go net/http, Java HttpHandler/HttpURLConnection
+** Preprocessing via top level if statements that conditionally generate vars, functions, etc
+** Some automatic constants suitable for preprocessing (eg SYSTEM_OS, SYSTEM_ARCH)
+* Generate code for conversions, eg string -> int as Go strconv.Atoi, Java Integer.parseInt, etc
+* Use json/yaml/toml to drive code generation
+** Describe an object type
+** Generate DTO structure
+** Generate DAO for basic DTO handling (upsert, select, delete)
+** Generate HTTP structure
+** Generate REST API for basic operations (create/update, read, delete, patch), read only desired fields
+** Generate all above in UL, which can then be used to generate target language
+* Generate Dockerfile(s) with variations, such as:
+** Local dev: podman with separate pods for database and API containers
+** Local prod: podman with one pod for database and API containers, only API exposed
+** Local embedded: podman with one pod for database/API container, where UL code translated into UL SQL procs and funcs
+* Initially, work with following languages and databases:
+** C, C#, F#, Go, Java
+** DuckDB, MSSQL, MySQL, Oracle, Postgres
+
+Language features:
+
+* Built in maps, lists, primitives (including string and accurate decimal math), json/yaml/toml handling
+* Define structs, procedures, funcs
+* A struct can just be equal to another structure to act as a separate name for the same thing
+* A struct can can be another structure plus additional fields
+* An SQL like case statement
+* As few operators as possible, no ++, /=, etc
+* Uses wordy statements sometimes
+** EG, to define DDL statements, text processing, json/yaml/toml handling
+** UL code can create new words
+* A grammar for parsing text
+** Used to parse UL, including new words added by APIs
+** Base UL only includes primitive types, structs, procs, funcs, grammar. Everything else is added using grammar parser.
