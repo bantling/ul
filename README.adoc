@@ -15,7 +15,7 @@ UL is a Universal Language, in the following senses:
 * A UL script can just be a single line like ".Age < 100" to validate the Age field of the current object
 * Written in UL
 
-Key functional areas:
+=== Key functional areas:
 
 * Simple imperative code
 * Easy to learn
@@ -41,7 +41,7 @@ Key functional areas:
 ** C, C#, F#, Go, Java
 ** DuckDB, MSSQL, MySQL, Oracle, Postgres
 
-Language features:
+=== Language features:
 
 * Built in maps, lists, primitives (including string and accurate decimal math), json/yaml/toml handling
 * Define structs, procedures, funcs
@@ -55,3 +55,145 @@ Language features:
 * A grammar for parsing text
 ** Used to parse UL, including new words added by APIs
 ** Base UL only includes primitive types, structs, procs, funcs, grammar. Everything else is added using grammar parser.
+** Parser used both for parsing external data (eg, JSON) as well as for extending UL to have new syntax.
+** Core of UL is the core language and parser, remaining UL syntax is built by extending the parser.
+
+
+=== Parser for core UL, and extending it
+
+* Ignore whitespace
+* Define rules that make up parsing
+* A rule name can be referred to before it is defined, to support recursive definitions
+  (eg, JSON arrays and objects can contain arrays and objects)
+* Predefined rules for escapes for ascii control characters, quotes, and backslash
+* Predefined rules all start with an _, as in _TAB_ESC
+* A rule uses single quotes to surround literal character sequences - there are no escape sequences, making it easy
+  to define escape sequences
+* A character can be defined as U+HHHHHH outside of quotes
+* A character range can be defined in square brackets, like [a-z]
+** [a-z] means a .. z inclusive
+** [a-] and [-a] mean a and dash
+** [-] means a dash only
+** [-a-z], [a-z-], and [-a-z-] mean a .. z inclusive, and dash
+** U+HHHHHH can be used, such that [U+000061-U+00007A] means the same as [a-z]
+** The range can be followed by one or more (- character) or (- range) to remove character(s) from the range
+** eg, [a-z] - x defines all lowercase letters except x
+** eg, [a-z] - [xy] defines all lowercase letters except x and y
+* Round brackets group rule parts together
+* A rule or group can be followed by:
+** ? to mean zero or one
+** * to mean zero or more
+** + to mean 1 or more
+** {N} to mean exactly N
+** {N,} to mean N or more
+** {,M} to mean 0 to M times
+** {N,M} to mean N to M times, inclusive
+* A rule can have multiple lines, each of which can have multiple rules
+* A line represents a valid sequence of rules
+* Multiple lines represent multiple valid sequences to choose from
+* Lines are tried in order for the first line that matches the input
+* If all lines are exhausted, an error occurs
+
+Errors are generated automatically, by simply stating the following:
+
+* The filename, line, and character position where the error occurred
+* The last max 10 lines that were legal before the error occurred
+* The token that failed - if the token contains non-printable ASCII chars, show Unicode U+HHHHHH hex sequence for them
+* The set of possible rule names that could be used instead of the failed token
+
+Allow for applying actions using core language.
+
+Some builtin rules have builtin actions. EG, _utf16_ESC logically means a UTF16 character (the lowercase spelling
+is due to expecting a lowercase u), but UTF can require up to 24 bits to represent a single character. UTF16 uses a
+combination of high and low surrogate characters in that order, which together represent a single 24-bit character. It
+is an error if a high surrogate is followed by anything but a low surrogate, or if a low surrogate is not preceded by a
+high surrogate. These errors are handled by the builtin action.
+
+Start with the following sequence on a line by itself, where <name> is a unique name provided:
+DEFINE LANGUAGE <name>
+
+End with the following sequence on a line by itself:
+END LANGUAGE
+
+=== Example rules that describe JSON
+
+----
+DEFINE LANGUAGE JSON:
+
+// Builtin rules of interest:
+_BACKSPACE_ESC   = '\b'
+_TAB_ESC         = '\t'
+_LF_ESC          = '\n'
+_FF_ESC          = '\f'
+_CR_ESC          = '\r'
+_DQUOTE_ESC      = '\"'
+_SLASH_ESC       = '\/'
+_BACKSLASH_ESC   = '\\'
+_DIGIT           = [0-9]
+_HEX             = [0-9A-Fa-f]
+_utf16_ESC       = '\u' _HEX{4} // This rule has code defined to ensure legal (non-)surrogate sequences
+_PRINTABLE_CHARS = [ -U+10FFFF]
+
+// JSON rules:
+// String
+STRING_ESCAPE = _BACKSPACE_ESC
+                _TAB_ESC
+                _LF_ESC
+                _FF_ESC
+                _CR_ESC
+                _DQUOTE_ESC
+                _SLASH_ESC
+                _BACKSLASH_ESC
+                _utf16_ESC
+STRING_CHARS  = _PRINTABLE_CHARS - '\' - '"'
+                STRING_ESCAPE
+STRING        = '"' STRING_CHARS* '"'
+
+// Number
+SIGN     = '-'
+INT      = 0
+           [1-9] _DIGIT*
+FRAC     = '.' _DIGIT+
+EXP_SIGN = '+'
+           '-'
+EXP      = [Ee] EXP_SIGN? _DIGIT+
+NUMBER   = SIGN? INT FRAC? EXP?
+
+// Boolean
+BOOLEAN = 'true'
+          'false'
+
+// Null
+NULL = 'null'
+
+// All values that can be array elements or object key values
+VALUE = STRING
+        NUMBER
+        BOOLEAN
+        NULL
+        ARRAY
+        OBJECT
+
+// Array
+ARRAY = '[' VALUE (',' VALUE)* ']'
+
+// Object
+KEY_VALUE = STRING ':' VALUE
+OBJECT = '{' KEY_VALUE (',' KEY_VALUE)* '}'
+
+END LANGUAGE
+----
+
+=== Core language
+
+* Multiple source files and/or directories, nested any number of levels
+** A directory is a package, where the package name for a given directory is the relative directory path (without a leading ./)
+** Directory and file names must be [A-Za-z][0-9A-Z_a-z]* for portability - any names that do not conform are a warning, and are not read for code
+** A directory can contain a mixture of code and non-code files
+** A file within the structure can be referred to in code using an absolute path where / is the top level project dir
+** Up to caller to invoke UL from correct root dir
+** Invoking in a project subdir treats that subdir as root dir, so a project can be multiroot if desired
+** When invoked, it is up to code to include other packages with an include path statement - any dir not included is not parsed
+* A source file can have top level statements
+** Allows top level ifs to be used as a type of preprocessing - conditionally define funcs and vars, conditionally include subdirs
+** A program can be just top level statements in a file
