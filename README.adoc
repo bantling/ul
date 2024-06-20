@@ -76,9 +76,10 @@ UL is a Universal Language, in the following senses:
 ** [-] means a dash only
 ** [-a-z], [a-z-], and [-a-z-] mean a .. z inclusive, and dash
 ** U+HHHHHH can be used, such that [U+000061-U+00007A] means the same as [a-z]
-** The range can be followed by one or more (- character) or (- range) to remove character(s) from the range
-** eg, [a-z] - x defines all lowercase letters except x
-** eg, [a-z] - [xy] defines all lowercase letters except x and y
+** Inside round brackets, a range can be followed by one or more - character or - range sequences to remove character(s) from the range
+** [a-z] - x defines all lowercase letters except x
+** [a-z] - [xy] defines all lowercase letters except x and y
+** named ranges can be used
 * Round brackets group rule parts together
 * A rule or group can be followed by:
 ** ? to mean zero or one
@@ -88,6 +89,10 @@ UL is a Universal Language, in the following senses:
 ** {N,} to mean N or more
 ** {,M} to mean 0 to M times
 ** {N,M} to mean N to M times, inclusive
+* A string range can be defined by a character range followed by {N,M}
+** A string range can be followed by | and a pair of valid subsequences separated by ..
+** If string _HEX4 = [0-9A-Fa-f]{4}, then string range _HEX4|D800 .. DBFF| means all strings four hex chars from D800 through DBFF
+** Inside round brackets, a string range can be followed one or more - string range sequences to remove string range(s) from the string range
 * A rule can have multiple lines, each of which can have multiple rules
 * A line represents a valid sequence of rules
 * Multiple lines represent multiple valid sequences to choose from
@@ -121,18 +126,22 @@ END LANGUAGE
 DEFINE LANGUAGE JSON:
 
 // Builtin rules of interest:
-_BACKSPACE_ESC   = '\b'
-_TAB_ESC         = '\t'
-_LF_ESC          = '\n'
-_FF_ESC          = '\f'
-_CR_ESC          = '\r'
-_DQUOTE_ESC      = '\"'
-_SLASH_ESC       = '\/'
-_BACKSLASH_ESC   = '\\'
-_DIGIT           = [0-9]
-_HEX             = [0-9A-Fa-f]
-_utf16_ESC       = '\u' _HEX{4} // This rule has code defined to ensure legal (non-)surrogate sequences
-_PRINTABLE_CHARS = [ -U+10FFFF]
+_BACKSPACE_ESC        = '\b'
+_TAB_ESC              = '\t'
+_LF_ESC               = '\n'
+_FF_ESC               = '\f'
+_CR_ESC               = '\r'
+_DQUOTE_ESC           = '\"'
+_SLASH_ESC            = '\/'
+_BACKSLASH_ESC        = '\\'
+_DIGIT                = [0-9]
+_HEX                  = [0-9A-Fa-f]
+_HEX4                 = _HEX{4}
+_UTF16_HIGH_SURROGATE = _HEX|D800 .. DBFF|
+_UTF16_LOW_SURROGATE  = _HEX|DC00 .. DFFF|
+_utf16_ESC            = '\u' ( _HEX4 - _UTF16_HIGH_SURROGATE - _UTF16_LOW_SURROGATE )
+                        '\u' _UTF16_HIGH_SURROGATE '\u' _UTF16_LOW_SURROGATE
+_PRINTABLE_CHARS      = [ -U+10FFFF]
 
 // JSON rules:
 // String
@@ -145,7 +154,7 @@ STRING_ESCAPE = _BACKSPACE_ESC
                 _SLASH_ESC
                 _BACKSLASH_ESC
                 _utf16_ESC
-STRING_CHARS  = _PRINTABLE_CHARS - '\' - '"'
+STRING_CHARS  = ( _PRINTABLE_CHARS - '\' - '"' )
                 STRING_ESCAPE
 STRING        = '"' STRING_CHARS* '"'
 
