@@ -63,6 +63,7 @@ UL is a Universal Language, in the following senses:
 
 * Ignore whitespace
 * Define rules that make up parsing
+* Rule names are case sensitive, to allow for subtle distinctions
 * A rule name can be referred to before it is defined, to support recursive definitions
   (eg, JSON arrays and objects can contain arrays and objects)
 * Predefined rules for escapes for ascii control characters, quotes, and backslash
@@ -72,9 +73,8 @@ UL is a Universal Language, in the following senses:
 * A character can be defined as U+HHHHHH outside of quotes
 * A character range can be defined in square brackets, like [a-z]
 ** [a-z] means a .. z inclusive
-** [a-] and [-a] mean a and dash
-** [-] means a dash only
-** [-a-z], [a-z-], and [-a-z-] mean a .. z inclusive, and dash
+** [a-] means a .. U+10FFFF inclusive
+** [-a] means space .. a inclusive
 ** U+HHHHHH can be used, such that [U+000061-U+00007A] means the same as [a-z]
 ** Inside round brackets, a range can be followed by one or more - character or - range sequences to remove character(s) from the range
 ** [a-z] - x defines all lowercase letters except x
@@ -94,10 +94,18 @@ UL is a Universal Language, in the following senses:
 ** If string _HEX4 = [0-9A-Fa-f]{4}, then string range _HEX4|D800 .. DBFF| means all strings four hex chars from D800 through DBFF
 ** Inside round brackets, a string range can be followed one or more - string range sequences to remove string range(s) from the string range
 * A rule can have multiple lines, each of which can have multiple rules
-* A line represents a valid sequence of rules
-* Multiple lines represent multiple valid sequences to choose from
-* Lines are tried in order for the first line that matches the input
-* If all lines are exhausted, an error occurs
+** A line represents a valid sequence of rules
+** Multiple lines represent multiple valid sequences to choose from
+** Lines are tried in order for the first line that matches the input
+** If all lines are exhausted, an error occurs
+* Valid rules can be described as follows:
+** strings: `varname = one line of string | char range | string range`
+** orderings: `varname = one or more lines of string sequences, where each string is a literal or string var`
+* Rules fit into two categories
+** No whitespace: rules that define tokens, this is the initial mode
+** Whitespace: rules that define grammar, which allow any amount of whitespace between tokens (preceded by `:GRAMMAR:`)
+** Once the mode is switched to grammar, it cannot be switched back, for readability
+** Last grammar rule is the top level rule for the language
 
 Errors are generated automatically, by simply stating the following:
 
@@ -123,9 +131,12 @@ END LANGUAGE
 === Example rules that describe JSON
 
 ----
-DEFINE LANGUAGE JSON:
+DEFINE LANGUAGE JSON	
 
-// Builtin rules of interest:
+// Builtin tokens of interest:
+_TAB                  = U+000009
+_LF                   = U+00000A
+_CR                   = U+00000D
 _BACKSPACE_ESC        = '\b'
 _TAB_ESC              = '\t'
 _LF_ESC               = '\n'
@@ -137,13 +148,14 @@ _BACKSLASH_ESC        = '\\'
 _DIGIT                = [0-9]
 _HEX                  = [0-9A-Fa-f]
 _HEX4                 = _HEX{4}
-_UTF16_HIGH_SURROGATE = _HEX|D800 .. DBFF|
-_UTF16_LOW_SURROGATE  = _HEX|DC00 .. DFFF|
+_UTF16_HIGH_SURROGATE = _HEX4|D800 .. DBFF|
+_UTF16_LOW_SURROGATE  = _HEX4|DC00 .. DFFF|
 _utf16_ESC            = '\u' ( _HEX4 - _UTF16_HIGH_SURROGATE - _UTF16_LOW_SURROGATE )
                         '\u' _UTF16_HIGH_SURROGATE '\u' _UTF16_LOW_SURROGATE
-_PRINTABLE_CHARS      = [ -U+10FFFF]
+_PRINTABLE_CHARS      = [ -]
 
-// JSON rules:
+// JSON tokens
+
 // String
 STRING_ESCAPE = _BACKSPACE_ESC
                 _TAB_ESC
@@ -175,7 +187,20 @@ BOOLEAN = 'true'
 // Null
 NULL = 'null'
 
-// All values that can be array elements or object key values
+// The following grammar rules allow any amount of whitespace between tokens
+:GRAMMAR:
+
+// Array
+ARRAY = '[' ']'
+        '[' VALUE ( ',' VALUE )* ']'
+
+// Object
+KEY_VALUE = STRING ':' VALUE
+OBJECT = '{' '}'
+         '{' KEY_VALUE ( ',' KEY_VALUE )* '}'
+
+// As the last rule, it determines what gets returned
+// In this case, it means a JSON primitive value is considered type JSON, as well as array and object, like SQL
 VALUE = STRING
         NUMBER
         BOOLEAN
@@ -183,12 +208,104 @@ VALUE = STRING
         ARRAY
         OBJECT
 
-// Array
-ARRAY = '[' VALUE (',' VALUE)* ']'
+END LANGUAGE
+----
 
-// Object
-KEY_VALUE = STRING ':' VALUE
-OBJECT = '{' KEY_VALUE (',' KEY_VALUE)* '}'
+=== Rules that describe a language definition
+
+----
+DEFINE LANGUAGE LANGUAGE
+
+// List of all built in identifiers
+_TAB                  = U+000009
+_LF                   = U+00000A
+_CR                   = U+00000D
+_BACKSPACE_ESC        = '\b'
+_TAB_ESC              = '\t'
+_LF_ESC               = '\n'
+_FF_ESC               = '\f'
+_CR_ESC               = '\r'
+_DQUOTE_ESC           = '\"'
+_SQUOTE_ESC           = "\'"
+_SLASH_ESC            = '\/'
+_BACKSLASH_ESC        = '\\'
+_DIGIT                = [0-9]
+_DIGITS               = ( _DIGIT )+
+_HEX                  = [0-9A-Fa-f]
+_HEX2                 = _HEX{2}
+_HEX4                 = _HEX{4}
+_HEX6                 = _HEX{6}
+_HEX8                 = _HEX{8}
+_HEX16                = _HEX{16}
+_UTF16_HIGH_SURROGATE = _HEX4|D800..DBFF|
+_UTF16_LOW_SURROGATE  = _HEX4|DC00..DFFF|
+_UTF16_ESC            = '\u' ( _HEX4 - _UTF16_HIGH_SURROGATE - _UTF16_LOW_SURROGATE )
+                        '\u' _UTF16_HIGH_SURROGATE '\u' _UTF16_LOW_SURROGATE
+_UNICODE_HEX_CHAR     = 'U+' _HEX6|000000 .. 10FFFF|
+_PRINTABLE_CHARS      = [ -]
+
+// Built in identifiers can start with an underscore, but user defined identifiers cannot
+IDENTIFIER = [A-Za-z][0-9A-Z_a-z]*
+
+// A string is single or double quoted, can contain any character except opening quote character
+// A string can be an identifier followed by a repetition or range
+// A repetition is {N,} for N or more, {,M} for 0 up to M, or {N,M} for N up to M where N < M
+// A range is |low..high|, where low < high, and both low and high must be within limits of the identifier
+_NON_DQUOTE_CHARS = ( _PRINTABLE_CHARS - '"' )
+_NON_SQUOTE_CHARS = ( _PRINTABLE_CHARS - "'" )
+REPETITION_RANGE  = _DIGITS
+                    ',' _DIGITS
+                    _DIGITS ','
+                    $_DIGITS ',' $_DIGITS ; $1 < $2
+REPETITION        = '{' REPETITION_RANGE '}'
+RANGE             = $IDENTIFIER '|' $LOW '..' $HIGH '|' ; ($2 >= lowest($1)) and ($3 <= highest($1)) and ($2 < $3)
+STRING            = '"' ( _NON_DQUOTE_CHARS )* '"'
+                    "'" ( _NON_SQUOTE_CHARS )* "'"
+                    IDENTIFIER REPETITION
+                    IDENTIFIER RANGE
+
+// A character range of the form [X-Y], where X and Y are unicode chars or U+HHHHHH
+// Valid combinations are:
+// [X-], meaning char X through char U+10FFFF
+// [X-Y], meaning char X thru char Y, where X < Y
+// [XY...], meaning char X or char Y or ...
+// [A-BCDE-F...G-], meaning char A thru char B or char C or char D or char E thru char F, ..., chars G through U+10FFFF
+// In each X-Y range, X must be <= Y
+// An opening square bracket can be contained inside []
+// A closing square bracket cannot be contained inside [], it would have to be U+00005D
+// A space or \ inside [] is a literal space or \
+CHAR_RANGE_CHARS = ( _PRINTABLE_CHARS - '-' - ']' )
+                   _UNICODE_HEX_CHAR
+CHAR_RANGE_FROM    = CHAR_RANGE_CHARS '-'
+CHAR_RANGE_FROM_TO = $CHAR_RANGE_CHARS '-' $CHAR_RANGE_CHARS; $1 < $2
+CHAR_RANGE_CHOICES = CHAR_RANGE_CHARS
+                     CHAR_RANGE_FROM_TO
+CHAR_RANGE         = '[' ( CHAR_RANGE_CHOICES )* CHAR_RANGE_FROM ']'                
+
+// An identifier can be followed by {N}, {N,}, {,M}, or {N,M} to indicate the number of repetitions allowed
+REPETITION = IDENTIFIER '{' _DIGITS ( ',' )? '}'
+             IDENTIFIER '{' ',' _DIGITS '}'
+             IDENTIFIER '{' _DIGITS ',' _DIGITS '}'
+
+// An identifier can be inside a parentheses for a grouping, which can have the following forms
+// (X), (X - Y), (X - Y - Z ...)
+// followed by ?, *, +, or a repetition
+
+// RHS identifiers can be preceded by a $. A semicolon and simple comparison of $[0-9] (<, <=, =, >=, >) $[0-9] can follow RHS.
+// The $[0-9] is a reference to an RHS $ usage before the semicolon.
+EXPR_IDENTIFIER = '$' IDENTIFIER
+EXPR_REF        = '$' [0-9]
+EXPR_COMPARE = '<'
+               '<='
+               '='
+               '>='
+               '>'
+
+:GRAMMAR:
+
+START = 'DEFINE' 'LAANGUAGE' IDENTIFIER
+
+EXPR = ';' EXPR_REF EXPR_COMPARE EXPR_REF
 
 END LANGUAGE
 ----
@@ -197,7 +314,7 @@ END LANGUAGE
 
 * Multiple source files and/or directories, nested any number of levels
 ** A directory is a package, where the package name for a given directory is the relative directory path (without a leading ./)
-** Directory and file names must be [A-Za-z][0-9A-Z_a-z]* for portability - any names that do not conform are a warning, and are not read for code
+** Directory and file names must begin without a dot, or they are skipped
 ** A directory can contain a mixture of code and non-code files
 ** A file within the structure can be referred to in code using an absolute path where / is the top level project dir
 ** Up to caller to invoke UL from correct root dir
